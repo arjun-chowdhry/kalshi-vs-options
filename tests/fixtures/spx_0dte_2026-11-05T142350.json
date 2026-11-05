@@ -1,0 +1,19 @@
+{
+  "options_expiry": "2026-11-05",
+  "options_asof": "2026-11-05T19:23:50.838635+00:00",
+  "spx_bar_time": "2026-11-05T19:08:00+00:00",
+  "spx_bar_value": 7367.89990234375,
+  "rate_curve": {
+    "tenors": [
+      0.2493150684931507,
+      5.0,
+      10.0
+    ],
+    "rates": [
+      0.04062882926971913,
+      0.04548874744543396,
+      0.04773576790318324
+    ]
+  },
+  "note": "Same-day SPXW chain from snapshot 2026-11-05T142350 (Yahoo, ~15 min delayed). Its put bid/asks from 7305 up are corrupted; see kvo.options."
+}

@@ -10,5 +10,6 @@ Read-only: public market data only, no orders, no keys.
 py -3.13 -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
 .venv\Scripts\python.exe -m pytest
-.venv\Scripts\python.exe scripts\snapshot.py     # during market hours
+.venv\Scripts\python.exe scripts\snapshot.py       # during market hours: save + report
+.venv\Scripts\python.exe scripts\fit_snapshot.py   # re-fit the latest saved snapshot
 ```

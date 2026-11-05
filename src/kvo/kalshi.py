@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 import time
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -43,6 +44,7 @@ __all__ = [
     "BASE_URL",
     "RANGE_SERIES",
     "SERIES",
+    "candle_at",
     "candles_table",
     "fetch_candles",
     "fetch_markets",
@@ -50,6 +52,7 @@ __all__ = [
     "markets_table",
     "next_close_event",
     "range_event",
+    "prices_at",
     "ranges_table",
 ]
 
@@ -227,3 +230,40 @@ def candles_table(candles: list[dict]) -> pd.DataFrame:
         for c in candles
     ]
     return pd.DataFrame(rows, columns=["time", "yes_bid", "yes_ask", "volume"])
+
+
+def candle_at(candles: pd.DataFrame, t: pd.Timestamp) -> pd.Series | None:
+    """The 1-minute candle covering ``t`` (the first one ending at or after it), else None.
+
+    Its closing bid and ask are the book at the end of that minute, matching the close of the
+    1-minute SPX bar that starts the same minute (``kvo.options.index_at``).
+    """
+    after = candles[candles["time"] >= t]
+    if after.empty or after["time"].iloc[0] - t > pd.Timedelta(minutes=1):
+        return None
+    return after.iloc[0]
+
+
+def prices_at(markets: pd.DataFrame, t: pd.Timestamp) -> pd.DataFrame:
+    """Kalshi's bid and ask for each market at minute ``t``, from 1-minute candles.
+
+    ``markets`` needs ``ticker`` and ``strike`` (a slice of ``markets_table``). One request per
+    market, so pass only the strikes you need. Used to line Kalshi up with the delayed option
+    quotes: Kalshi's live book at download time is about 15 minutes newer than the options.
+    """
+    rows = []
+    for ticker, strike in zip(markets["ticker"], markets["strike"], strict=True):
+        table = candles_table(
+            fetch_candles(ticker, t - pd.Timedelta(minutes=2), t + pd.Timedelta(minutes=2))
+        )
+        c = candle_at(table, t)
+        rows.append(
+            {
+                "ticker": ticker,
+                "strike": strike,
+                "time": c["time"] if c is not None else pd.NaT,
+                "yes_bid": c["yes_bid"] if c is not None else np.nan,
+                "yes_ask": c["yes_ask"] if c is not None else np.nan,
+            }
+        )
+    return pd.DataFrame(rows, columns=["ticker", "strike", "time", "yes_bid", "yes_ask"])

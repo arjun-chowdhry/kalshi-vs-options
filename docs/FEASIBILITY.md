@@ -47,7 +47,7 @@ percentage points** before it shows up as a paper profit.
 | Same-day SPX expiries? | **Yes.** `^SPX` lists daily expiries (2026-11-05, 11-06, 11-09, ...). Contracts are SPXW (e.g. `SPXW261105C07730000`). | yfinance 1.7.0 |
 | Strikes | 141 calls and 197 puts for 2026-11-05, **5 points apart** near the money, the same grid as Kalshi. | yfinance |
 | Settlement | SPXW daily options are European, cash-settled on the 4pm closing index value, the same number Kalshi uses **(general knowledge)**. | |
-| Quote quality | **Not yet measured.** At 7pm only 1 of 338 contracts had a bid, so cleaning kept nothing (expected after the close). | `scripts/snapshot.py` |
+| Quote quality | **Mixed, measured 2026-11-05 at 14:23 ET** (see below). Calls and deep OTM puts are clean; Yahoo's put bid/asks from 7305 up were corrupted (tight, two-sided, freshly traded, and below intrinsic or far below their own last trade). The same-day cleaning in `kvo/options.py` now catches this. | `scripts/fit_snapshot.py` |
 | Delay | Yahoo option quotes are about 15 minutes delayed **(general knowledge; options-desk notes the same)**. `scripts/snapshot.py` measures it on every run (minutes since the latest trade, and since the latest 1-minute index bar). | |
 | SPY needed? | No. SPX is the same index Kalshi settles on, with no ETF-to-index mapping. SPY stays as a fallback only if SPX same-day quotes turn out unusable. | |
 | History | **None for free.** Yahoo serves only the live chain. | |
@@ -69,15 +69,38 @@ SPX index: 7688.73, latest 1-min bar 195.1 min before download
 SVI: not fitted, only 0 clean quotes (market closed?)
 ```
 
-## Still to check (the first run during market hours)
+## First market-hours run (snapshot 2026-11-05T142350)
 
-1. How many same-day SPX quotes survive `clean_chain` (two-sided, spread under 50% of mid)?
-2. Does SVI fit that smile well (RMSE in vol points), and do the fitted probabilities fall
-   smoothly from 1 to 0 across Kalshi's strikes?
-3. How delayed are the option quotes and the index level, measured?
+The first fit gave an SVI RMSE of 20.6 vol points and a parity forward of 7438.75 against an
+index of 7367.90. Diagnosis and fix:
 
-If (1) and (2) look reasonable at midday, the project is fully feasible and Milestone 4 goes
-ahead. If not, the fallback is SPY with a forward-ratio mapping.
+- **Cause: corrupted put quotes.** 114 of 116 in-the-money puts were quoted below intrinsic
+  (the 7500 put at 9.40/9.60, intrinsic 132, last trade 128.35), and the OTM puts from 7305 to
+  7365 were 1-14 points below trades in the same contract from under a minute earlier. The
+  parity rule (median over the 5 strikes with the smallest `|C - P|`) picked exactly those
+  pairs. With F = 7438.75 the bad puts then counted as OTM and made 93% of the fit error.
+- **Delay, measured:** the latest option trade (the quote clock) was 15.1 minutes before the
+  download; the latest index bar 15.8 minutes. Kalshi is live. At the quote clock Kalshi's
+  50% point was ~7367 (the index: 7367.90); at download it was ~7381.
+- **Fix** (`kvo/options.py`): the index at the quote clock as the forward, T from the quote
+  clock, a 15-minute staleness cut, an "off the tape" check (mid vs a trade seconds earlier),
+  tradeable no-arbitrage checks across strikes and across the forward, and strikes within two
+  expected moves. Parity is kept as a check only (7371.8, +3.9 vs the index).
+- **ITM calls** were checked as a substitute for the bad puts and rejected: the 7320/7325/7340
+  calls are not convex, and a synthetic put inherits the forward's error one for one.
+- **Result:** 18 quotes (7250-7475), RMSE 1.57 vol points, ATM vol 55.3%. But no clean quote
+  between 7300 and 7390 (1.5 expected moves), and the SVI vertex sits in that gap with a sharp
+  kink, so option probabilities there are the fit's shape. Kalshi agrees within its bid-ask at
+  25 of the 30 strikes outside the gap and at 1 of 17 inside it (sanity check only; Kalshi is
+  never used in the fit).
+
+**It recurs.** A second snapshot the same day (2026-11-05T150047, quote clock 14:45:45 ET,
+index 7413.45) had the same pattern in puts 7370-7410, just below the index; with them
+dropped: 20 quotes, RMSE 0.84 vol points, ATM vol 59.5%, a 7365-7420 gap (1.0 expected moves).
+So the cleaning is needed every day, and there will usually be a gap just below the money.
+
+Still open for Milestone 2: how to get probabilities across that gap without an artificial
+kink, and whether the corruption follows the index (it sat just below it both times).
 
 ## Sources
 - Kalshi API (public, no key): https://api.elections.kalshi.com/trade-api/v2 (`/series`, `/events`, `/markets`, `/markets/{ticker}/orderbook`, `/series/{s}/markets/{t}/candlesticks`, `/markets/trades`, `/historical/*`, `/series/fee_changes`)

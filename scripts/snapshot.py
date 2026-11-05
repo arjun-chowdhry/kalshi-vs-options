@@ -8,12 +8,15 @@ Usage, from the repo folder (run it while the market is open, 9:30am-4pm New Yor
 What it does, in order:
 1. Asks Kalshi for the open 4pm S&P 500 event (today's, or the next one after the close).
 2. Downloads every strike of that event and every range contract (``KXINX``) for the same
-   close: 3 public read-only requests in all, no account.
-3. Downloads the SPX option chain for that expiry and the next, the Treasury curve, and the
-   latest 1-minute SPX bar (Yahoo, via options-desk).
-4. Saves all of it as one folder (``kvo.snapshot``) and prints a short quality report: how many
-   Kalshi strikes have both a bid and an ask, how many SPX quotes survive cleaning, how good the
-   SVI fit is, and how delayed the option data looks.
+   close: 3 public read-only requests, no account.
+3. Downloads the SPX option chain for that expiry and the next, the Treasury curve, and
+   today's 1-minute SPX bars (Yahoo, via options-desk).
+4. Finds the options' quote clock (their latest trade, about 15 minutes ago) and looks up
+   Kalshi's bid and ask at that minute for the strikes within 150 points of the index (one
+   1-minute candle request each, about 60 requests at 5 per second: roughly 15 seconds).
+5. Saves all of it as one folder (``kvo.snapshot``) and prints a quality report: Kalshi's book,
+   the options' clock and staleness, what the cleaning dropped, the SVI fit, the largest
+   strike gap near the money, then (separately, after the fit) the Kalshi comparison.
 """
 
 from __future__ import annotations
@@ -23,8 +26,10 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import requests
 
 from kvo import kalshi, options
+from kvo.report import kalshi_strikes_near, same_day_report
 from kvo.snapshot import DEFAULT_ROOT, save_snapshot
 
 NEW_YORK = "America/New_York"
@@ -43,9 +48,22 @@ def main(argv: list[str] | None = None) -> int:
     expiry = pd.Timestamp(markets["close_time"].iloc[0]).tz_convert(NEW_YORK).date()
 
     raw, curve = options.fetch_spx()
-    bar_time, bar_value = options.spx_last_minute()
+    bars = options.spx_minutes()
     options_asof = pd.Timestamp(raw["asof"].iloc[0])
+    t_quote = options.quote_time(raw, expiry)
 
+    # Kalshi at the options' quote clock (Kalshi is live, the options are ~15 minutes old).
+    kalshi_at_quote = None
+    if not pd.isna(t_quote) and not bars.empty:
+        try:
+            _, index = options.index_at(bars, t_quote)
+            kalshi_at_quote = kalshi.prices_at(kalshi_strikes_near(markets, index), t_quote)
+        except ValueError as err:
+            print(f"Kalshi at the quote clock: skipped ({err})")
+        except requests.RequestException as err:
+            print(f"Kalshi at the quote clock: download failed ({err}); continuing without it")
+
+    last_bar = bars.iloc[-1] if not bars.empty else None
     meta = {
         "kalshi_event": event,
         "kalshi_range_event": ranges_event,
@@ -53,11 +71,14 @@ def main(argv: list[str] | None = None) -> int:
         "options_ticker": options.TICKER,
         "options_expiry": f"{expiry:%Y-%m-%d}",
         "options_asof": options_asof.isoformat(),
-        "spx_bar_time": None if pd.isna(bar_time) else bar_time.isoformat(),
-        "spx_bar_value": bar_value,
+        "options_quote_time": None if pd.isna(t_quote) else t_quote.isoformat(),
+        "spx_bar_time": None if last_bar is None else pd.Timestamp(last_bar["time"]).isoformat(),
+        "spx_bar_value": None if last_bar is None else float(last_bar["close"]),
         "sources": {"kalshi": kalshi.BASE_URL, "options": "Yahoo Finance via yfinance"},
     }
-    folder = save_snapshot(markets, ranges, raw, curve, meta, args.root)
+    folder = save_snapshot(
+        markets, ranges, raw, curve, meta, args.root, spx_bars=bars, kalshi_at_quote=kalshi_at_quote
+    )
     print(f"saved {folder}")
 
     # --- quality report -------------------------------------------------------------------
@@ -74,24 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         f"Kalshi {ranges_event}: {len(ranges)} range contracts, {len(quoted)} with a bid and "
         f"an ask (the sum-to-100% check comes in Milestone 2)"
     )
-
-    today = raw[pd.to_datetime(raw["expiry"]).dt.date == expiry]
-    print(
-        f"SPX {expiry}: {len(today)} quotes, {(today['bid'] > 0).sum()} with a bid; "
-        f"latest trade {options.quote_age_minutes(raw, expiry):.1f} min before download"
-    )
-    if not pd.isna(bar_time):
-        lag = (options_asof - bar_time) / pd.Timedelta(minutes=1)
-        print(f"SPX index: {bar_value:.2f}, latest 1-min bar {lag:.1f} min before download")
-
-    clean, fit = options.same_day_fit(raw, curve, expiry)
-    if fit is None:
-        print(f"SVI: not fitted, only {len(clean)} clean quotes (market closed?)")
-    else:
-        print(
-            f"SVI: {int(fit['n'])} quotes, RMSE {fit['rmse'] * 100:.2f} vol points, "
-            f"forward {fit['forward']:.2f}, converged {bool(fit['success'])}"
-        )
+    _, lines = same_day_report(raw, curve, expiry, bars, kalshi_at_quote)
+    print("\n".join(lines))
     return 0
 
 
