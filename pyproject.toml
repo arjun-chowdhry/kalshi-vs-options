@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kvo"
+version = "0.1.0"
+description = "Kalshi vs options: same-day S&P 500 probabilities from Kalshi and from SPX options."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Arjun Chowdhry" }]
+dependencies = [
+    # Pricing, cleaning and the SVI surface come from options-desk, pinned to one commit so a
+    # change there can never silently change results here.
+    "optdesk @ git+https://github.com/arjun-chowdhry/options-desk.git@c4f118af6a6f708cffe18187b0d0c8794e0880f4",
+    "requests>=2.32",
+    "pandas>=2.2.3",
+    "pyarrow>=18.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "ruff==0.17.1",  # same pin as options-desk
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "NPY"]

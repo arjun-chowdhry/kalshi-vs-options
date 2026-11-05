@@ -1,0 +1,163 @@
+"""Read-only access to Kalshi's public market data for the same-day S&P 500 contracts.
+
+Safety: this module only ever sends HTTP GET requests to the public market-data endpoints.
+There is no login, no account, no key, and no function that could place or cancel an order.
+``tests/test_safety.py`` scans the source code and fails if that ever changes.
+
+Which contracts
+---------------
+Kalshi's series ``KXINXU`` ("S&P 500 above/below") lists, for every trading day, one event per
+hour from 10am to 4pm New York time. We use only the 4pm event (e.g. ``KXINXU-26NOV05H1600``),
+because it settles on the end-of-day S&P 500 value, the same number SPX options settle on.
+Each event has 60-80 markets, one per strike, 5 index points apart. A market such as
+``KXINXU-26NOV05H1600-T7744.9999`` pays $1 if the index closes above 7744.9999, i.e. at or
+above 7745.00 (the index has two decimals). Kalshi reports that level as ``floor_strike``.
+
+Prices come as strings in dollars (``"0.2300"``). A bid of 0 means nobody is bidding, and an
+ask of 0 or 1 means nobody is offering. We store both as missing (NaN), not as real prices.
+
+Rate limits: Kalshi's basic tier allows about 20 requests per second. A snapshot uses one or
+two requests, so we never get near that.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+import requests
+
+__all__ = [
+    "BASE_URL",
+    "SERIES",
+    "candles_table",
+    "fetch_candles",
+    "fetch_markets",
+    "fetch_open_events",
+    "markets_table",
+    "next_close_event",
+]
+
+BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+SERIES = "KXINXU"
+CLOSE_SUFFIX = "H1600"  # the 4pm New York event
+TIMEOUT = 30  # seconds
+
+MARKET_COLUMNS = [
+    "asof",  # when we downloaded the market (UTC)
+    "event",
+    "ticker",
+    "strike",  # YES pays if the S&P 500 closes at or above this level
+    "yes_bid",
+    "yes_ask",
+    "yes_bid_size",
+    "yes_ask_size",
+    "last",
+    "volume",
+    "open_interest",
+    "status",
+    "result",  # "yes" / "no" once settled, else ""
+    "settle_value",  # the S&P 500 value Kalshi settled on, NaN before settlement
+    "close_time",
+]
+
+
+def _get(path: str, params: dict | None = None) -> dict:
+    """One GET request to the public API; raises on any HTTP error."""
+    response = requests.get(BASE_URL + path, params=params, timeout=TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_open_events(series: str = SERIES) -> list[dict]:
+    """Every event of ``series`` that is still open for trading."""
+    return _get("/events", {"series_ticker": series, "status": "open", "limit": 200})["events"]
+
+
+def next_close_event(events: list[dict]) -> str:
+    """The earliest 4pm event among ``events`` (today's if the market is open, else the next)."""
+    close = [e for e in events if e["event_ticker"].endswith(CLOSE_SUFFIX)]
+    if not close:
+        raise ValueError("no open 4pm S&P 500 event on Kalshi (weekend or holiday?)")
+    return min(close, key=lambda e: e["strike_date"])["event_ticker"]
+
+
+def fetch_markets(event: str) -> list[dict]:
+    """Every market (strike) of one event, following Kalshi's page cursor."""
+    markets, cursor = [], None
+    while True:
+        params = {"event_ticker": event, "limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+        page = _get("/markets", params)
+        markets.extend(page["markets"])
+        cursor = page.get("cursor")
+        if not cursor:
+            return markets
+
+
+def _price(value, *, ask: bool = False) -> float:
+    """Dollar string -> float; an empty side of the book becomes NaN."""
+    if value in (None, ""):
+        return float("nan")
+    p = float(value)
+    empty = p <= 0 or (ask and p >= 1)
+    return float("nan") if empty else p
+
+
+def markets_table(markets: list[dict], asof: pd.Timestamp) -> pd.DataFrame:
+    """Kalshi's market JSON as one tidy row per strike, sorted by strike."""
+    rows = []
+    for m in markets:
+        settle = m.get("expiration_value") or ""
+        rows.append(
+            {
+                "asof": pd.Timestamp(asof),
+                "event": m["event_ticker"],
+                "ticker": m["ticker"],
+                # 7744.9999 on some series means "7745.00 or above": round to the index's 2 dp.
+                "strike": round(float(m["floor_strike"]), 2),
+                "yes_bid": _price(m.get("yes_bid_dollars")),
+                "yes_ask": _price(m.get("yes_ask_dollars"), ask=True),
+                "yes_bid_size": float(m.get("yes_bid_size_fp") or 0),
+                "yes_ask_size": float(m.get("yes_ask_size_fp") or 0),
+                "last": _price(m.get("last_price_dollars")),
+                "volume": float(m.get("volume_fp") or 0),
+                "open_interest": float(m.get("open_interest_fp") or 0),
+                "status": m.get("status", ""),
+                "result": m.get("result", ""),
+                "settle_value": float(settle) if settle else float("nan"),
+                "close_time": pd.Timestamp(m["close_time"]),
+            }
+        )
+    table = pd.DataFrame(rows, columns=MARKET_COLUMNS)
+    return table.sort_values("strike").reset_index(drop=True)
+
+
+def fetch_candles(
+    ticker: str, start: pd.Timestamp, end: pd.Timestamp, minutes: int = 1
+) -> list[dict]:
+    """Bid/ask candlesticks of one market between ``start`` and ``end`` (1, 60 or 1440 minutes).
+
+    These are public for recent markets, so we can look up the Kalshi price at the exact minute
+    the (delayed) option quotes are from. Markets settled before Kalshi's archive cutoff live
+    under ``/historical`` instead; we don't need those yet.
+    """
+    params = {
+        "start_ts": int(pd.Timestamp(start).timestamp()),
+        "end_ts": int(pd.Timestamp(end).timestamp()),
+        "period_interval": minutes,
+    }
+    return _get(f"/series/{SERIES}/markets/{ticker}/candlesticks", params)["candlesticks"]
+
+
+def candles_table(candles: list[dict]) -> pd.DataFrame:
+    """Candlestick JSON -> ``time`` (end of the minute, UTC), closing ``yes_bid`` / ``yes_ask``."""
+    rows = [
+        {
+            "time": pd.Timestamp(c["end_period_ts"], unit="s", tz="UTC"),
+            "yes_bid": _price(c["yes_bid"].get("close_dollars")),
+            "yes_ask": _price(c["yes_ask"].get("close_dollars"), ask=True),
+            "volume": float(c.get("volume_fp") or 0),
+        }
+        for c in candles
+    ]
+    return pd.DataFrame(rows, columns=["time", "yes_bid", "yes_ask", "volume"])

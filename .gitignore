@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Secrets: this project never uses keys, and these patterns make sure none get committed
+.env
+.env.*
+*.pem
+*.key
+*secret*
+*credential*
+
+# Market data: regenerable; only the demo snapshot under data/demo/ is committed
+data/snapshots/
+data/logs/
