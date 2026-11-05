@@ -102,6 +102,53 @@ So the cleaning is needed every day, and there will usually be a gap just below 
 Still open for Milestone 2: how to get probabilities across that gap without an artificial
 kink, and whether the corruption follows the index (it sat just below it both times).
 
+### The off-the-tape rule (frozen 2026-11-05)
+
+**The rule** (`kvo.options.off_tape`): drop a quote if its contract traded within 60 seconds
+before the quote clock and its mid is more than max(0.5 index points, 20% of that trade) away
+from the trade price.
+
+**Why it was added.** The no-arbitrage checks drop a put only when its ask is below a price
+it must be worth, and the corrupted puts at 7305-7325 on 2026-11-05T142350 stayed above every
+such bound. They were 0.95-2.40 points below trades in the same contracts 0-50 seconds before
+the clock. Every other quote between 7150 and 7600 that had traded in that window was within
+0.25 of its trade. A move that big in under a minute would need an index move several times
+larger than one minute of a 55% vol allows. The threshold was set from those option quotes
+alone, with room on both sides: the smallest corrupted gap was 0.95, the largest clean one
+0.225.
+
+**How it was found, stated plainly.** I added the rule **after looking at the Kalshi
+comparison table** for 2026-11-05T142350. That table showed the options' probability falling
+12 points between 7315 and 7320, and that jump led me back to the 7305-7325 puts. Kalshi
+prices are not an input to the rule and were not used to choose its threshold. But Kalshi is
+what prompted the rule, so the comparison on these two snapshots is not fully independent of
+it.
+
+**Frozen.** The rule and its three numbers (60 s, 0.5, 20%) will not change after this point,
+whatever later Kalshi comparisons show. If a future snapshot shows the rule wrongly dropping
+good quotes, that goes in this document as a known limitation, not into a retuned rule.
+
+**What it changed**, on both snapshots of 2026-11-05. The fit itself is the same frozen code,
+with only `off_tape` switched off for the "off" rows. "Within" means the options probability
+falls inside Kalshi's bid-ask at the quote-clock minute. Each row uses its own strike gap,
+because the rule changes which quotes survive:
+
+| Snapshot | Rule | Quotes | RMSE (vol pts) | ATM vol | Gap | Kalshi within bid-ask: all | outside gap | inside gap | Mean / max \|options - Kalshi\| |
+|---|---|---|---|---|---|---|---|---|---|
+| T142350 | on | 18 | 1.57 | 55.3% | 7300-7390 | 26 / 47 | 25 / 30 | 1 / 17 | 2.3 / 6.3 pts |
+| T142350 | off | 21 | 1.70 | 53.0% | 7325-7390 | 19 / 47 | 19 / 35 | 0 / 12 | 3.5 / 10.1 pts |
+| T150047 | on | 20 | 0.84 | 59.5% | 7365-7420 | 25 / 42 | 23 / 32 | 2 / 10 | 1.3 / 3.6 pts |
+| T150047 | off | 23 | 14.86 | 66.9% | 7385-7425 | 22 / 42 | 20 / 35 | 2 / 7 | 1.9 / 4.4 pts |
+
+- **T142350:** without the rule, the 7305-7325 puts stay in and pull the smile's low point
+  toward them. Seven strikes change from outside to within Kalshi's spread or back (7270-7290,
+  7405-7415), and the options probability moves by up to 5.1 points.
+- **T150047:** without the rule, the corrupted puts at 7370-7410 are fitted and the fit breaks
+  (RMSE 14.9 vol points). Thirteen strikes change status, and the probability moves by up to 5.0
+  points.
+- With the rule on, agreement outside the gap is 25/30 and 23/32. Inside the gap it is 1/17
+  and 2/10 either way: the gap is where the options say nothing.
+
 ## Sources
 - Kalshi API (public, no key): https://api.elections.kalshi.com/trade-api/v2 (`/series`, `/events`, `/markets`, `/markets/{ticker}/orderbook`, `/series/{s}/markets/{t}/candlesticks`, `/markets/trades`, `/historical/*`, `/series/fee_changes`)
 - Contract terms (linked from the series; not read yet, the market `rules_primary` text was used): https://assets.kalshi.com/contract_terms/INX.pdf
