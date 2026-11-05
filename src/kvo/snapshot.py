@@ -2,7 +2,8 @@
 
 Layout: ``data/snapshots/2026-11-05T120001/`` (New York time of the run) holding
 
-- ``kalshi.parquet``: every strike of the 4pm event (``kalshi.markets_table``),
+- ``kalshi.parquet``: every strike of the 4pm "above" event (``kalshi.markets_table``),
+- ``ranges.parquet``: every range contract for the same close (``kalshi.ranges_table``),
 - ``options.parquet``: the raw SPX chain exactly as downloaded (``optdesk`` format),
 - ``meta.json``: both download times, the SPX level and its time, the Treasury curve, the
   Kalshi event and the option expiry.
@@ -33,6 +34,7 @@ STAMP = "%Y-%m-%dT%H%M%S"
 @dataclass(frozen=True)
 class Snapshot:
     kalshi: pd.DataFrame
+    ranges: pd.DataFrame  # empty for a snapshot saved before range contracts were added
     options: pd.DataFrame
     curve: RateCurve
     meta: dict
@@ -41,6 +43,7 @@ class Snapshot:
 
 def save_snapshot(
     kalshi: pd.DataFrame,
+    ranges: pd.DataFrame,
     options: pd.DataFrame,
     curve: RateCurve,
     meta: dict,
@@ -54,6 +57,7 @@ def save_snapshot(
     tmp = folder.with_name(folder.name + ".tmp")
     tmp.mkdir(parents=True)
     kalshi.to_parquet(tmp / "kalshi.parquet", index=False)
+    ranges.to_parquet(tmp / "ranges.parquet", index=False)
     options.to_parquet(tmp / "options.parquet", index=False)
     note = {**meta, "rate_curve": curve.to_dict()}
     (tmp / "meta.json").write_text(json.dumps(note, indent=2, default=str))
@@ -65,8 +69,10 @@ def load_snapshot(folder: Path | str) -> Snapshot:
     folder = Path(folder)
     meta = json.loads((folder / "meta.json").read_text())
     curve = RateCurve.from_dict(meta.pop("rate_curve"))
+    ranges_file = folder / "ranges.parquet"
     return Snapshot(
         kalshi=pd.read_parquet(folder / "kalshi.parquet"),
+        ranges=pd.read_parquet(ranges_file) if ranges_file.exists() else pd.DataFrame(),
         options=pd.read_parquet(folder / "options.parquet"),
         curve=curve,
         meta=meta,

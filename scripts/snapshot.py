@@ -7,7 +7,8 @@ Usage, from the repo folder (run it while the market is open, 9:30am-4pm New Yor
 
 What it does, in order:
 1. Asks Kalshi for the open 4pm S&P 500 event (today's, or the next one after the close).
-2. Downloads every strike of that event (public data, no account).
+2. Downloads every strike of that event and every range contract (``KXINX``) for the same
+   close: 3 public read-only requests in all, no account.
 3. Downloads the SPX option chain for that expiry and the next, the Treasury curve, and the
    latest 1-minute SPX bar (Yahoo, via options-desk).
 4. Saves all of it as one folder (``kvo.snapshot``) and prints a short quality report: how many
@@ -37,6 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     event = kalshi.next_close_event(kalshi.fetch_open_events())
     kalshi_asof = pd.Timestamp.now(tz="UTC")
     markets = kalshi.markets_table(kalshi.fetch_markets(event), kalshi_asof)
+    ranges_event = kalshi.range_event(event)
+    ranges = kalshi.ranges_table(kalshi.fetch_markets(ranges_event), kalshi_asof)
     expiry = pd.Timestamp(markets["close_time"].iloc[0]).tz_convert(NEW_YORK).date()
 
     raw, curve = options.fetch_spx()
@@ -45,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
 
     meta = {
         "kalshi_event": event,
+        "kalshi_range_event": ranges_event,
         "kalshi_asof": kalshi_asof.isoformat(),
         "options_ticker": options.TICKER,
         "options_expiry": f"{expiry:%Y-%m-%d}",
@@ -53,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         "spx_bar_value": bar_value,
         "sources": {"kalshi": kalshi.BASE_URL, "options": "Yahoo Finance via yfinance"},
     }
-    folder = save_snapshot(markets, raw, curve, meta, args.root)
+    folder = save_snapshot(markets, ranges, raw, curve, meta, args.root)
     print(f"saved {folder}")
 
     # --- quality report -------------------------------------------------------------------
@@ -64,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"Kalshi {event}: {len(markets)} strikes, {len(two_sided)} with a bid and an ask; "
         f"median spread {spread:.2f} on the {len(active)} strikes priced 5-95 cents"
+    )
+    quoted = ranges.dropna(subset=["yes_bid", "yes_ask"])
+    print(
+        f"Kalshi {ranges_event}: {len(ranges)} range contracts, {len(quoted)} with a bid and "
+        f"an ask (the sum-to-100% check comes in Milestone 2)"
     )
 
     today = raw[pd.to_datetime(raw["expiry"]).dt.date == expiry]

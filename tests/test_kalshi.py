@@ -66,6 +66,82 @@ def test_fetch_markets_follows_the_cursor(monkeypatch):
     assert seen == [None, "next"]
 
 
+RANGES = Path(__file__).parent / "fixtures" / "kalshi_ranges.json"
+
+
+@pytest.fixture
+def ranges():
+    return kalshi.ranges_table(json.loads(RANGES.read_text())["markets"], ASOF)
+
+
+def test_range_bounds_tails_and_buckets(ranges):
+    # Real Nov 4 contracts: tail below 7175, buckets 7650-7725, tail at or above 7875
+    first, last = ranges.iloc[0], ranges.iloc[-1]
+    assert (first["lower"], first["upper"]) == (-np.inf, 7175.0)
+    assert (last["lower"], last["upper"]) == (7875.0, np.inf)
+    buckets = ranges.iloc[1:-1]
+    assert list(buckets["lower"]) == [7650.0, 7675.0, 7700.0]
+    assert (buckets["upper"] - buckets["lower"] == 25).all()  # 7674.9999 -> 7675.00
+
+
+def test_adjacent_buckets_share_a_boundary(ranges):
+    buckets = ranges.iloc[1:-1]
+    np.testing.assert_array_equal(buckets["upper"].to_numpy()[:-1], buckets["lower"].to_numpy()[1:])
+
+
+def test_settle_value_falls_in_exactly_the_yes_bucket(ranges):
+    # Nov 4 closed at 7688.62: only [7675, 7700) resolved YES
+    inside = (ranges["lower"] <= ranges["settle_value"]) & (
+        ranges["settle_value"] < ranges["upper"]
+    )
+    assert inside.sum() == 1
+    assert (ranges["result"] == np.where(inside, "yes", "no")).all()
+    assert ranges.loc[inside, "ticker"].item() == "KXINX-26NOV04H1600-B7687"
+
+
+def test_range_empty_book_and_empty_response(ranges):
+    assert ranges["yes_bid"].isna().all() and ranges["yes_ask"].isna().all()  # settled
+    empty = kalshi.ranges_table([], ASOF)
+    assert empty.empty and list(empty.columns) == kalshi.RANGE_COLUMNS
+
+
+def test_unknown_strike_type_is_rejected():
+    market = {"ticker": "X", "strike_type": "weird", "event_ticker": "E", "close_time": "2026"}
+    with pytest.raises(ValueError):
+        kalshi.ranges_table([market], ASOF)
+
+
+def test_range_event_name():
+    assert kalshi.range_event("KXINXU-26NOV05H1600") == "KXINX-26NOV05H1600"
+    with pytest.raises(ValueError):
+        kalshi.range_event("KXINX-26NOV05H1600")
+
+
+def test_requests_are_spaced_to_respect_rate_limits(monkeypatch):
+    clock = [100.0]
+    sleeps = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {}
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(kalshi.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(kalshi.time, "sleep", fake_sleep)
+    monkeypatch.setattr(kalshi.requests, "get", lambda *a, **k: Response())
+    monkeypatch.setattr(kalshi, "_last_request", 0.0)
+    for _ in range(3):
+        kalshi._get("/x")
+    # first call goes at once; the next two each wait the full interval
+    assert sleeps == pytest.approx([kalshi.MIN_INTERVAL] * 2)
+
+
 def test_candles_table():
     candles = [
         {
