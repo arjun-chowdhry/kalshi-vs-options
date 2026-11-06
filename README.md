@@ -11,8 +11,10 @@ Read-only: public market data only, no orders, no keys.
 - **M1, data feasibility (done, 2026-11-06, verdict: go):** [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
   Same-day cleaning in `kvo/options.py`. The off-the-tape rule is frozen as of 2026-11-05.
   Daily snapshots run at 11:15am New York (Task Scheduler), where the chain was cleanest.
-- **M2, compare the two markets:** options-implied P(close >= K) against Kalshi's bid/ask at
-  the options' quote clock, one snapshot at a time. Ground rules:
+- **M2, compare the two markets (in progress, [docs/COMPARISON.md](docs/COMPARISON.md)):**
+  options-implied P(close >= K) against Kalshi's bid/ask at the options' quote clock, one
+  snapshot at a time. So far no strike on any snapshot is beyond the resolution limit. Ground
+  rules:
   - Kalshi prices are never an input to the options fit. They are compared only after it.
   - Every chart shades the strike gap near the money where no option quote survived cleaning,
     labelled **"no usable option quotes"**. Probabilities there come from the fit's shape, not
@@ -28,7 +30,12 @@ Read-only: public market data only, no orders, no keys.
   expected moves wide and covered the at-the-money strikes. The options' uncertainty combines
   the fit error (leave-one-out refits) with a forward error (index vs parity, 4-5 points). It
   is measured per strike on two snapshots from one day so far, and M2 re-measures it on every
-  snapshot and applies the limit strike by strike.
+  snapshot and applies the limit strike by strike. **Measured by M2 (2026-11-06, 4
+  snapshots):** 6-13 points at strikes priced 20-80 cents and 2-4 points in the wings. The
+  forward error there is the larger of the parity gap and the median 1-minute index move
+  (3.9-5.3 points).
+  - The one-sided offset between the options and Kalshi is an observation, not a finding,
+    until it has been checked on at least 5 trading days.
 
 ## Setup and daily use
 
@@ -38,4 +45,6 @@ py -3.13 -m venv .venv
 .venv\Scripts\python.exe -m pytest
 .venv\Scripts\python.exe scripts\snapshot.py       # during market hours: save + report
 .venv\Scripts\python.exe scripts\fit_snapshot.py   # re-fit the latest saved snapshot
+.venv\Scripts\python.exe scripts\compare_snapshots.py  # M2 tables + offset summary
+.venv\Scripts\python.exe scripts\check_settlement.py   # after ~7pm ET: Kalshi vs ^GSPC
 ```

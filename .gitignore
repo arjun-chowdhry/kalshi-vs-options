@@ -17,3 +17,4 @@ __pycache__/
 # Market data: regenerable; only the demo snapshot under data/demo/ is committed
 data/snapshots/
 data/logs/
+data/m2/
