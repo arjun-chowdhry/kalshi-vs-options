@@ -4,15 +4,19 @@ Checked on Wednesday 2026-11-04, mostly after the 4pm close (about 7pm New York)
 number below was observed directly, from Kalshi's public API, Kalshi's docs, or Yahoo via
 yfinance, unless it is marked **(general knowledge)** or **(unverified)**.
 
-## Verdict: feasible, with one check still open
+## Verdict: feasible (closed 2026-11-06)
 
 - **The Kalshi side works.** It is free, needs no account or key, has the right contracts,
   real two-sided quotes during the day, and free minute-by-minute price history.
-- **The SPX option side is promising but not yet verified live.** Yahoo serves same-day SPX
-  expiries, and their strikes and settlement line up with Kalshi's. But after the close every
-  option bid is zero, so tonight I could not test quote quality or the SVI fit on a same-day
-  smile. **This needs one snapshot during market hours** (any weekday 10am-3:30pm New York).
-  That run is the go/no-go for Milestone 4.
+- **The SPX option side works, with daily cleaning.** Yahoo serves same-day SPX expiries
+  whose strikes and settlement line up with Kalshi's. Three market-hours snapshots (two late on
+  2026-11-05, one mid-morning on 2026-11-06) all gave a converged SVI fit with RMSE under 1.6
+  vol points after cleaning. The morning one was the best by far: 51 quotes, RMSE 0.52, a
+  10-point strike gap (see [Morning run](#morning-run-snapshot-2026-11-06t112037)). The
+  go/no-go for Milestone 4 is **go**.
+- **Snapshots should be taken mid-morning.** On the evidence so far (one morning, one
+  afternoon day; not yet separated from day-to-day variation) the morning chain is much
+  cleaner. Daily snapshots are scheduled for 11:15am New York.
 - **The big limit is history on the options side.** Yahoo has no past option chains. The
   backtest and scoreboard can only use snapshots we save from now on, so the sample builds up
   at one day per trading day.
@@ -148,6 +152,68 @@ because the rule changes which quotes survive:
   points.
 - With the rule on, agreement outside the gap is 25/30 and 23/32. Inside the gap it is 1/17
   and 2/10 either way: the gap is where the options say nothing.
+
+## Morning run (snapshot 2026-11-06T112037)
+
+Downloaded 11:20:37 ET (10:20 CT) on Friday 2026-11-06, quote clock 11:05:36 ET, index at
+the quote clock 7412.33, 4.91 h to the close. Same frozen code as the 2026-11-05 rows above,
+nothing retuned. Reproduce with `scripts\fit_snapshot.py data\snapshots\2026-11-06T112037`.
+
+- **Chain:** 497 quotes, 348 with a bid (2026-11-05: 338 quotes, 245-263 with a bid).
+  Dropped 117 stale, 35 wide, 149 zero bids, and **0 off the tape**: no corrupted puts this
+  time. The puts just below the index, corrupted on both 2026-11-05 snapshots, were clean.
+- **Parity:** forward 7412.20 from 55 clean pairs, -0.13 vs the index (2026-11-05: 1 and 11
+  pairs, +3.9 and -5.3). So the forward error that dominates the resolution limit was about
+  zero this morning.
+- **Fit:** 51 quotes 7285-7540, RMSE 0.52 vol points (max 1.23), ATM vol 37.3%, expected move
+  to 4pm 64 points. Largest strike gap near the money 7415-7425: **10 points, 0.16 expected
+  moves**, against 55-90 points (1.0-1.5 expected moves) the day before. Only one Kalshi
+  strike (7420) falls inside it.
+- **Kalshi comparison** (after the fit, not used in it; Kalshi candles closing 11:06 ET):
+  37 of 53 strikes within Kalshi's bid-ask, 36 of 52 outside the gap. Mean |options - Kalshi
+  mid| 1.0 points, max 2.8.
+- **The 16 misses are all on one side**, 7370-7450 apart from 7435: options above Kalshi's
+  ask by 0.2-1.3 points, mean signed difference +1.0. On 2026-11-05 the misses were mostly
+  below the bid. The options' 50% point is about 7418, Kalshi's about 7414. Not diagnosed. The
+  index was falling (7433 at 10:51, 7412 at 11:05) and Kalshi's candle closes 24 seconds after
+  the quote clock, so a move or timing offset of a few index points would be enough. Either
+  way it is well below the 5-6 point resolution limit (README) and the ~3 point cost of acting,
+  so **it is not a finding**. M2 should track whether a one-sided offset recurs.
+
+### All three snapshots
+
+| Snapshot | Quote clock (ET) | To close | Quotes with a bid | Off the tape | Parity vs index | Fitted | RMSE (vol pts) | ATM vol | Strike gap | Within Kalshi bid-ask: all / outside gap | Mean / max \|options - Kalshi\| |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 11-05 T142350 | 14:08:45 | 1.85 h | 263 / 338 | 28 | +3.9 (1 pair) | 18 | 1.57 | 55.3% | 90 pts, 1.51 EM | 26/47, 25/30 | 2.3 / 6.3 pts |
+| 11-05 T150047 | 14:45:45 | 1.24 h | 245 / 338 | 14 | -5.3 (11 pairs) | 20 | 0.84 | 59.5% | 55 pts, 1.03 EM | 25/42, 23/32 | 1.3 / 3.6 pts |
+| 11-06 T112037 | 11:05:36 | 4.91 h | 348 / 497 | 0 | -0.1 (55 pairs) | 51 | 0.52 | 37.3% | 10 pts, 0.16 EM | 37/53, 36/52 | 1.0 / 2.8 pts |
+
+### Time of day
+
+The morning chain was better on every measure of the fit: 2.5 times as many fitted quotes, no
+off-the-tape corruption, a parity forward agreeing with the index, and a strike gap shrunk from over one
+expected move to a sixth of one. The no-quote gap, the main open problem from 2026-11-05,
+nearly disappeared.
+
+**What this does and does not show.** It is one morning on one day against two afternoons on
+another. Time of day is mixed up with the day itself (Friday vs Thursday, a calmer 37% ATM vol
+vs 55-60%) and with time to expiry (4.9 h vs 1.2-1.9 h: with more time left, more strikes
+near the money carry real premium). Not everything was cleaner: the morning chain is longer,
+and both its stale count (117) and its zero-bid count (149) were higher than the afternoon's
+(54-64 and 75-93), mostly far from the money. So "mornings are cleaner" is a working hypothesis,
+not a result. It is enough to pick a time for the daily snapshot, and the schedule is set
+from it: **every weekday at 11:15am New York (10:15am Central)**, so the 15-minute-delayed
+quotes are from about 11am, the same point in the day as this run, about 5 h before the close.
+To test the hypothesis properly, M2 needs some days with both a morning and an afternoon
+snapshot.
+
+### Still open, carried to Milestone 2
+
+- Whether the put corruption recurs in the morning, and whether it follows the index.
+- Probabilities across the strike gap on days it is wide (none needed this morning).
+- The one-sided ~1 point offset seen this morning: timing, the forward, or real.
+- The settlement source change to S&P Global took effect today, 2026-11-06. Check tonight's
+  `expiration_value` for `KXINXU-26NOV06H1600` against the `^GSPC` close.
 
 ## Sources
 - Kalshi API (public, no key): https://api.elections.kalshi.com/trade-api/v2 (`/series`, `/events`, `/markets`, `/markets/{ticker}/orderbook`, `/series/{s}/markets/{t}/candlesticks`, `/markets/trades`, `/historical/*`, `/series/fee_changes`)

@@ -8,8 +8,9 @@ Read-only: public market data only, no orders, no keys.
 
 ## Plan
 
-- **M1, data feasibility (done):** [docs/FEASIBILITY.md](docs/FEASIBILITY.md). Same-day
-  cleaning in `kvo/options.py`. The off-the-tape rule is frozen as of 2026-11-05.
+- **M1, data feasibility (done, 2026-11-06, verdict: go):** [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
+  Same-day cleaning in `kvo/options.py`. The off-the-tape rule is frozen as of 2026-11-05.
+  Daily snapshots run at 11:15am New York (Task Scheduler), where the chain was cleanest.
 - **M2, compare the two markets:** options-implied P(close >= K) against Kalshi's bid/ask at
   the options' quote clock, one snapshot at a time. Ground rules:
   - Kalshi prices are never an input to the options fit. They are compared only after it.
