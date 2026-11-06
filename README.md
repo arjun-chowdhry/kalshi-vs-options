@@ -1,41 +1,54 @@
 # Kalshi vs options
 
-Does Kalshi's price for "S&P 500 above X at 4pm today" agree with the probability implied by
-same-day SPX option prices, and does any gap survive Kalshi's fees and the bid-ask spread?
+Kalshi sells contracts that pay $1 if the S&P 500 closes above a given level today. Options
+on the same index, expiring today, also imply a probability for that. This project asks: do
+the two agree, and when they don't, is the gap big enough to make money after Kalshi's fees
+and the bid-ask spread?
 
-Work in progress. Milestone 1 (data feasibility) is in [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
-Read-only: public market data only, no orders, no keys.
+It only reads public market data. It has no account, no keys, and no code that could place an
+order. A test checks the source code for that.
 
-## Plan
+## Limits: read these before any result
 
-- **M1, data feasibility (done, 2026-11-06, verdict: go):** [docs/FEASIBILITY.md](docs/FEASIBILITY.md).
-  Same-day cleaning in `kvo/options.py`. The off-the-tape rule is frozen as of 2026-11-05.
-  Daily snapshots run at 11:15am New York (Task Scheduler), where the chain was cleanest.
-- **M2, compare the two markets (in progress, [docs/COMPARISON.md](docs/COMPARISON.md)):**
-  options-implied P(close >= K) against Kalshi's bid/ask at the options' quote clock, one
-  snapshot at a time. So far no strike on any snapshot is beyond the resolution limit. Ground
-  rules:
-  - Kalshi prices are never an input to the options fit. They are compared only after it.
-  - Every chart shades the strike gap near the money where no option quote survived cleaning,
-    labelled **"no usable option quotes"**. Probabilities there come from the fit's shape, not
-    from prices.
-  - An edge at a strike inside that gap is never reported as a finding. At most it is noted as
-    "inside the no-quote gap, not assessed".
-- **Resolution limit:** the free data can't credibly detect a gap between the options and
-  Kalshi smaller than about **5-6 percentage points** at typical strikes outside the no-quote
-  gap. That is about 3 points of Kalshi cost (half the spread plus the fee) plus twice the
-  options' own uncertainty of about 1-1.5 points. Near the gap's edges the limit is **up to
-  about 18 points**, where the uncertainty reaches 4-7 points. **Inside the gap there is no
-  limit, because there is no measurement.** On both 2026-11-05 snapshots that gap was 1.0-1.5
-  expected moves wide and covered the at-the-money strikes. The options' uncertainty combines
-  the fit error (leave-one-out refits) with a forward error (index vs parity, 4-5 points). It
-  is measured per strike on two snapshots from one day so far, and M2 re-measures it on every
-  snapshot and applies the limit strike by strike. **Measured by M2 (2026-11-06, 4
-  snapshots):** 6-13 points at strikes priced 20-80 cents and 2-4 points in the wings. The
-  forward error there is the larger of the parity gap and the median 1-minute index move
-  (3.9-5.3 points).
-  - The one-sided offset between the options and Kalshi is an observation, not a finding,
-    until it has been checked on at least 5 trading days.
+1. **There is very little data.** Free option data has no history, so the only evidence is
+   the snapshots saved since 2026-11-05: four so far, from two trading days, with **one
+   settled day**. A new snapshot is saved every weekday at 11:15am New York. With this few
+   days, **a null result is the expected outcome**. Nothing here is evidence of an edge.
+2. **Small gaps can't be detected.** The options' implied probability is itself uncertain.
+   The curve fitted to the option prices has its own error, and so does the index level it is
+   anchored to. Adding Kalshi's cost to act, the smallest gap the data can credibly detect is
+   **about 6-13 percentage points near the money**, and 2-4 points in the wings. This is
+   measured per strike on every snapshot.
+3. **Some strikes have no measurement at all.** Yahoo's option quotes are sometimes corrupted
+   or stale, and the cleaning removes them. That can leave strikes with no usable option quote
+   of their own. On Thursday 2026-11-05 more than half of the Kalshi strikes near the money
+   had none. Probabilities there come from the shape of the fitted curve, not from prices. They
+   are labelled **"no usable option quotes"** and are never reported as findings.
+4. **The two markets are matched only to the minute.** Yahoo's option quotes are about 15
+   minutes delayed. Kalshi's price is taken from the same minute, but the data can't line them
+   up more finely than that. On a fast-moving morning the index moves about 4 points a minute.
+5. **Trades on one day are not independent.** They all settle on the same close, so twenty
+   trades on one day are closer to one bet than to twenty. The day is the unit of evidence.
+6. **Some inputs are unverified.** Kalshi's fee rate, 0.07, comes from secondary sources,
+   because the fee schedule PDF wouldn't open. We use the higher of the rates quoted, to be
+   safe. Paper trades assume a one-contract fill at the quoted price.
+
+## Where things stand
+
+| Milestone | Status | What it found |
+|---|---|---|
+| **M1: is the data good enough?** [docs/FEASIBILITY.md](docs/FEASIBILITY.md) | Done (2026-11-06): **go** | Both markets are free and usable. Yahoo's same-day option quotes need daily cleaning. Mid-morning chains were much cleaner than afternoon ones (one day of each so far). |
+| **M2: do the two markets agree?** [docs/COMPARISON.md](docs/COMPARISON.md) | In progress | On every snapshot, every strike where the options can be measured agrees with Kalshi to within the limit in point 2. Kalshi's settlement value matched the `^GSPC` close on every day checked (Nov 3-5). A one-sided disagreement seen on one snapshot did not repeat 5 minutes later. It stays an observation until it has been checked on at least 5 trading days. |
+| **M3: paper trading** [docs/PAPER_TRADING.md](docs/PAPER_TRADING.md) | In progress | The strict rule, which trades only past the limit, made **no trades**. The naive rule, which trades whenever the options beat Kalshi's price by more than the fee, made 20 trades on the one settled day and was up $2.95. That is luck from one falling close: the options themselves expected $0.28. 17 of its 20 trades were at strikes with no option quotes. |
+| M4 | On hold | |
+
+## Ground rules
+
+- Kalshi prices are never used to clean or fit the options. They are compared only afterwards.
+- A gap at a strike with no usable option quote is never a finding.
+- The rule that removes corrupted option quotes ("off the tape") has been frozen since
+  2026-11-05 and is not retuned after looking at Kalshi.
+- The one-sided offset between options and Kalshi is not a finding until it has been checked on at least 5 trading days.
 
 ## Setup and daily use
 
@@ -43,8 +56,20 @@ Read-only: public market data only, no orders, no keys.
 py -3.13 -m venv .venv
 .venv\Scripts\python.exe -m pip install -e ".[dev]"
 .venv\Scripts\python.exe -m pytest
-.venv\Scripts\python.exe scripts\snapshot.py       # during market hours: save + report
-.venv\Scripts\python.exe scripts\fit_snapshot.py   # re-fit the latest saved snapshot
-.venv\Scripts\python.exe scripts\compare_snapshots.py  # M2 tables + offset summary
-.venv\Scripts\python.exe scripts\check_settlement.py   # after ~7pm ET: Kalshi vs ^GSPC
 ```
+
+| When | Command | What it does |
+|---|---|---|
+| Weekdays 11:15am New York (scheduled) | `scripts\snapshot_task.cmd` | Saves a snapshot, then checks earlier days' settlements. The log goes to `data\logs\`. |
+| Any time, market open | `.venv\Scripts\python.exe scripts\snapshot.py` | Saves a snapshot by hand and prints a quality report. |
+| Any time | `.venv\Scripts\python.exe scripts\fit_snapshot.py` | Re-fits the latest saved snapshot. |
+| Any time | `.venv\Scripts\python.exe scripts\compare_snapshots.py` | M2: the per-strike comparison and the offset summary. |
+| After about 7pm New York | `.venv\Scripts\python.exe scripts\check_settlement.py` | Records Kalshi's settlement value against the `^GSPC` close. |
+| After a new settled day | `.venv\Scripts\python.exe scripts\paper_trade.py` | M3: both rules' trades, settled P&L and standard errors. |
+
+The scheduled task lives in Windows Task Scheduler. To set it up, choose Create Task, then:
+
+- **Trigger:** Weekly, Mon-Fri, 10:15am. That is Central time; 11:15am New York.
+- **Action:** start `scripts\snapshot_task.cmd`. Leave "Start in" blank.
+- **Settings:** tick "Run task as soon as possible after a scheduled start is missed", and stop
+  the task after 30 minutes.
