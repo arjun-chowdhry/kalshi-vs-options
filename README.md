@@ -11,9 +11,10 @@ order. A test checks the source code for that.
 ## Limits: read these before any result
 
 1. **There is very little data.** Free option data has no history, so the only evidence is
-   the snapshots saved since 2026-11-05: four so far, from two trading days, with **one
-   settled day**. A new snapshot is saved every weekday at 11:15am New York. With this few
-   days, **a null result is the expected outcome**. Nothing here is evidence of an edge.
+   the snapshots saved since 2026-11-05: six so far, from three trading days. Two of those days
+   have settled, but only one had any paper trades, so **all the P&L rests on one close**. A
+   new snapshot is scheduled for every weekday at 11:15am New York. With this few days, **a
+   null result is the expected outcome**. Nothing here is evidence of an edge.
 2. **Small gaps can't be detected.** The options' implied probability is itself uncertain.
    The curve fitted to the option prices has its own error, and so does the index level it is
    anchored to. Adding Kalshi's cost to act, the smallest gap the data can credibly detect is
@@ -31,15 +32,16 @@ order. A test checks the source code for that.
    trades on one day are closer to one bet than to twenty. The day is the unit of evidence.
 6. **Some inputs are unverified.** Kalshi's fee rate, 0.07, comes from secondary sources,
    because the fee schedule PDF wouldn't open. We use the higher of the rates quoted, to be
-   safe. Paper trades assume a one-contract fill at the quoted price.
+   safe. It can decide close calls: at the lower rate, the naive rule would have traded once
+   on 2026-11-06. Paper trades assume a one-contract fill at the quoted price.
 
 ## Where things stand
 
 | Milestone | Status | What it found |
 |---|---|---|
 | **M1: is the data good enough?** [docs/FEASIBILITY.md](docs/FEASIBILITY.md) | Done (2026-11-06): **go** | Both markets are free and usable. Yahoo's same-day option quotes need daily cleaning. Mid-morning chains were much cleaner than afternoon ones (one day of each so far). |
-| **M2: do the two markets agree?** [docs/COMPARISON.md](docs/COMPARISON.md) | In progress | On every snapshot, every strike where the options can be measured agrees with Kalshi to within the limit in point 2. Kalshi's settlement value matched the `^GSPC` close on every day checked (Nov 3-5). A one-sided disagreement seen on one snapshot did not repeat 5 minutes later. It stays an observation until it has been checked on at least 5 trading days. |
-| **M3: paper trading** [docs/PAPER_TRADING.md](docs/PAPER_TRADING.md) | In progress | The strict rule, which trades only past the limit, made **no trades**. The naive rule, which trades whenever the options beat Kalshi's price by more than the fee, made 20 trades on the one settled day and was up $2.95. That is luck from one falling close: the options themselves expected $0.28. 17 of its 20 trades were at strikes with no option quotes. |
+| **M2: do the two markets agree?** [docs/COMPARISON.md](docs/COMPARISON.md) | In progress | On every snapshot, every strike where the options can be measured agrees with Kalshi to within the limit in point 2. Kalshi's settlement value matched the `^GSPC` close on every day checked (Nov 3-6). A one-sided disagreement has not held up: on Nov 6 it was gone 5 minutes later, and on Nov 9 it reversed 5 minutes later. It stays an observation until it has been checked on at least 5 trading days (3 so far). |
+| **M3: paper trading** [docs/PAPER_TRADING.md](docs/PAPER_TRADING.md) | Done (2026-11-09): **no evidence of an edge** | The strict rule, which trades only past the limit, made **no trades** on any of the six snapshots. The naive rule, which trades whenever the options beat Kalshi's price by more than the fee, made 20 trades on Nov 5 and was up $2.95. That is luck from one falling close: the options themselves expected $0.28, and 17 of the 20 were at strikes with no assessment. Neither rule traded on Nov 6, so that settlement added nothing. Nov 9's 7 naive trades aren't settled. Re-run as days settle. |
 | M4 | On hold | |
 
 ## Ground rules

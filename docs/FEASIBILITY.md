@@ -213,7 +213,8 @@ snapshot.
 - Probabilities across the strike gap on days it is wide (none needed this morning).
 - The one-sided ~1 point offset seen this morning: timing, the forward, or real.
 - The settlement source change to S&P Global took effect today, 2026-11-06. Check tonight's
-  `expiration_value` for `KXINXU-26NOV06H1600` against the `^GSPC` close.
+  `expiration_value` for `KXINXU-26NOV06H1600` against the `^GSPC` close. (Checked 2026-11-09:
+  both 7376.86. See COMPARISON.md.)
 
 ## Sources
 - Kalshi API (public, no key): https://api.elections.kalshi.com/trade-api/v2 (`/series`, `/events`, `/markets`, `/markets/{ticker}/orderbook`, `/series/{s}/markets/{t}/candlesticks`, `/markets/trades`, `/historical/*`, `/series/fee_changes`)

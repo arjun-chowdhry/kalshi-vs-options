@@ -113,9 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         f"\n  Days with settled trades: {', '.join(days) or 'none'}. Snapshot days not settled "
         f"yet: "
         f"{', '.join(pending) or 'none'}.\n"
-        "  SE (by day) needs at least 2 settled days; with fewer it is blank, because one day's "
-        "trades all\n  ride on one close and are not independent. SE (iid) ignores that and is "
-        "too small.\n"
+        "  SE (by day) needs at least 2 settled days with trades; with fewer it is blank, because "
+        "one day's\n  trades all ride on one close and are not independent. SE (iid) ignores "
+        "that and is too small.\n"
         "  This is a few days of data. A null result is the expected outcome; nothing here is "
         "evidence of an edge."
     )

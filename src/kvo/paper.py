@@ -125,7 +125,8 @@ def summarise(settled: pd.DataFrame) -> pd.DataFrame:
     - ``se_iid``: standard error of the mean treating every settled trade as independent.
       Too small: trades on one day all settle on the same close, so they move together.
     - ``se_day``: standard error of the mean P&L per trade across days (each day's mean P&L
-      is one observation). NaN with fewer than 2 settled days, which is the honest answer.
+      is one observation). NaN with fewer than 2 settled days that have trades, which is the
+      honest answer: a day with no trades has no mean P&L per trade.
     - ``edge_mean``: the average P&L the options probabilities expected.
     """
     groups = [(rule, settled[settled["rule"] == rule]) for rule in RULES]
